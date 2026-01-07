@@ -8,7 +8,7 @@ class TKResourcesAdmin(admin.ModelAdmin):
 
 @admin.register(InternalControl)
 class InternalControlAdmin(admin.ModelAdmin):
-    list_display = ('wp_ref', 'short_description')
+    list_display = ('code', 'short_description', 'wp_ref')
     search_fields = ('wp_ref', 'short_description')
     autocomplete_fields = ['requirements']
 
