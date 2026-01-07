@@ -6,7 +6,7 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'grc_tool.settings')
 django.setup()
 
-from compliance.models import FrameworkRequirement, Framework
+from core.models import FrameworkRequirement, Framework
 
 def import_soc2_requirements(file_path, framework_name="SOC2"):
     # Load framework object
