@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -74,15 +75,16 @@ WSGI_APPLICATION = "grc_tool.wsgi.application"
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'turnkey',
-        'USER': 'noahnielsen',
-        'PASSWORD': 'password',
-        'HOST': '127.0.0.1',
-        'PORT': '5432',
-    }
-}
+       'default': {
+           'ENGINE': 'django.db.backends.postgresql_psycopg2',
+           'NAME': os.getenv('DATABASE_NAME'),
+           'USER': os.getenv('DATABASE_USER'),
+           'PASSWORD': os.getenv('DATABASE_PASSWORD'),
+           'HOST': os.getenv('DATABASE_HOST'),
+           'PORT': '5432',
+           'OPTIONS': {'sslmode': 'require'},
+       }
+   }
 
 
 # Password validation
