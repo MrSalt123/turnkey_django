@@ -1,6 +1,10 @@
 from django.contrib import admin
 from .models import TKResources, Status, Framework, FrameworkRequirement, InternalControl, Audit, AuditAssessment, Finding
 
+from django.http import HttpResponse
+import csv
+from .models import FrameworkRequirement
+
 @admin.register(TKResources)
 class TKResourcesAdmin(admin.ModelAdmin):
     list_display = ('first_name', 'last_name', 'email')
@@ -28,6 +32,50 @@ class FrameworkRequirementAdmin(admin.ModelAdmin):
     search_fields = ('code', 'short_description') 
     list_filter = ('framework',)
     autocomplete_fields = ['parent']
+
+    actions = ['export_mapping_to_csv']
+
+    @admin.action(description="Export selected Requirements & Controls to CSV")
+    def export_mapping_to_csv(self, request, queryset):
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="compliance_mapping.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'Framework', 'Req Code', 'Req Description', 
+            'Parent Code', 'Control Code', 'Control Description'
+        ])
+
+        # prefetch_related('controls') is CRITICAL here for performance
+        queryset = queryset.select_related('framework', 'parent').prefetch_related('controls')
+
+        for req in queryset:
+            # Fetch all controls for THIS specific requirement
+            all_mapped_controls = req.controls.all()
+            
+            if all_mapped_controls.exists():
+                for control in all_mapped_controls:
+                    # This loop ensures every control gets its own row
+                    writer.writerow([
+                        req.framework.name,
+                        req.code,
+                        req.short_description,
+                        req.parent.code if req.parent else "None",
+                        control.code,
+                        control.short_description
+                    ])
+            else:
+                # Still include the requirement if it has 0 controls
+                writer.writerow([
+                    req.framework.name,
+                    req.code,
+                    req.short_description,
+                    req.parent.code if req.parent else "None",
+                    "No Control Mapped",
+                    "N/A"
+                ])
+                
+        return response
 
     def get_search_results(self, request, queryset, search_term):
         queryset, use_distinct = super().get_search_results(request, queryset, search_term)
