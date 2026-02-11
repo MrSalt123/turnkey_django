@@ -1,9 +1,42 @@
 from django.contrib import admin
 from .models import TKResources, Status, Framework, FrameworkRequirement, InternalControl, Audit, AuditAssessment, Finding
 
-from django.http import HttpResponse
 import csv
+import re
+from django.contrib import admin
+from django.http import HttpResponse
+from django.db.models import Case, When
 from .models import FrameworkRequirement
+
+def natural_sort_key(code, fw_name):
+    """
+    Logic to sort SOC2 by: CC -> A -> C -> P/PI
+    And all numerical values naturally: 1.1.2 comes before 1.1.10
+    """
+    fw_name = fw_name.upper()
+    code = str(code)
+    
+    # 1. Framework Priority (SOC2 first)
+    fw_priority = 0 if "SOC2" in fw_name else 1
+    
+    # 2. Prefix Priority for SOC2
+    # CC should be first, then A, then C, then P/PI
+    soc2_prefix_map = {'CC': 0, 'A': 1, 'C': 2, 'P': 3, 'PI': 3}
+    
+    # Split code into Alpha prefix and the rest (e.g., 'CC' and '1.1.2')
+    match = re.match(r'^([a-zA-Z]+)(.*)', code)
+    if match:
+        prefix, rest = match.groups()
+        prefix_priority = soc2_prefix_map.get(prefix.upper(), 99)
+    else:
+        prefix_priority = 99
+        rest = code
+
+    # 3. Numeric segments for natural sorting (e.g., "1.1.10" -> [1, 1, 10])
+    # This prevents 1.1.10 from appearing before 1.1.2
+    num_parts = [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', rest) if s]
+
+    return (fw_priority, prefix_priority, num_parts)
 
 @admin.register(TKResources)
 class TKResourcesAdmin(admin.ModelAdmin):
@@ -32,11 +65,36 @@ class FrameworkRequirementAdmin(admin.ModelAdmin):
     search_fields = ('code', 'short_description') 
     list_filter = ('framework',)
     autocomplete_fields = ['parent']
-
     actions = ['export_mapping_to_csv']
+
+    def get_queryset(self, request):
+        """
+        Overrides the admin view to show the requirements in the natural sorted order.
+        """
+        qs = super().get_queryset(request).select_related('framework', 'parent')
+        
+        # Sort in memory
+        req_list = list(qs)
+        req_list.sort(key=lambda x: natural_sort_key(x.code, x.framework.name))
+        
+        # Reconstruct ordered queryset for the admin UI
+        preserved_ids = [r.pk for r in req_list]
+        preserved = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(preserved_ids)])
+        
+        return qs.filter(pk__in=preserved_ids).order_by(preserved)
+
+    def get_search_results(self, request, queryset, search_term):
+        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
+        referring_model = request.GET.get('model_name')
+        if referring_model == 'frameworkrequirement':
+            queryset = queryset.filter(parent__isnull=True)
+        return queryset, use_distinct
 
     @admin.action(description="Export selected Requirements & Controls to CSV")
     def export_mapping_to_csv(self, request, queryset):
+        """
+        Generates CSV with the same strict sorting applied.
+        """
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename="compliance_mapping.csv"'
         
@@ -46,52 +104,27 @@ class FrameworkRequirementAdmin(admin.ModelAdmin):
             'Parent Code', 'Control Code', 'Control Description'
         ])
 
-        # prefetch_related('controls') is CRITICAL here for performance
-        queryset = queryset.select_related('framework', 'parent').prefetch_related('controls')
+        # Apply sorting to the selected items
+        req_list = list(queryset.select_related('framework', 'parent').prefetch_related('controls'))
+        req_list.sort(key=lambda x: natural_sort_key(x.code, x.framework.name))
 
-        for req in queryset:
-            # Fetch all controls for THIS specific requirement
-            all_mapped_controls = req.controls.all()
+        for req in req_list:
+            all_controls = req.controls.all()
+            parent_code = req.parent.code if req.parent else "None"
             
-            if all_mapped_controls.exists():
-                for control in all_mapped_controls:
-                    # This loop ensures every control gets its own row
+            if all_controls.exists():
+                for control in all_controls:
                     writer.writerow([
-                        req.framework.name,
-                        req.code,
-                        req.short_description,
-                        req.parent.code if req.parent else "None",
-                        control.code,
-                        control.short_description
+                        req.framework.name, req.code, req.short_description,
+                        parent_code, control.code, control.short_description
                     ])
             else:
-                # Still include the requirement if it has 0 controls
                 writer.writerow([
-                    req.framework.name,
-                    req.code,
-                    req.short_description,
-                    req.parent.code if req.parent else "None",
-                    "No Control Mapped",
-                    "N/A"
+                    req.framework.name, req.code, req.short_description,
+                    parent_code, "No Control Mapped", "N/A"
                 ])
                 
         return response
-
-    def get_search_results(self, request, queryset, search_term):
-        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
-        
-        # Determine the source of the search request
-        # 'model_name' tells us which page the user is currently on
-        referring_model = request.GET.get('model_name')
-
-        if referring_model == 'frameworkrequirement':
-            # We are on the Requirement page: Only show Top-Level Parents
-            queryset = queryset.filter(parent__isnull=True)
-        
-        # If referring_model is 'internalcontrol', we don't filter.
-        # This allows you to see both CC6.1 AND 6.1.1 (the Points of Focus).
-            
-        return queryset, use_distinct
 
 # Register the rest
 @admin.register(Status)
