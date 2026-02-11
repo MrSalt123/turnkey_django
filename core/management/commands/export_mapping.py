@@ -1,6 +1,6 @@
 import csv
 from django.core.management.base import BaseCommand
-from your_app.models import Framework, FrameworkRequirement, InternalControl
+from core.models import Framework, FrameworkRequirement, InternalControl
 
 class Command(BaseCommand):
     help = 'Export Frameworks, Requirements, and Control mappings to CSV'
