@@ -9,17 +9,9 @@ from .models import (
 )
 
 def natural_sort_key(code, fw_name):
-    """
-    Logic to sort SOC2 by: CC -> A -> C -> P/PI
-    And all numerical values naturally: 1.1.2 comes before 1.1.10
-    """
     fw_name = fw_name.upper()
     code = str(code)
-    
-    # 1. Framework Priority (SOC2 first)
     fw_priority = 0 if "SOC2" in fw_name else 1
-    
-    # 2. Prefix Priority for SOC2
     soc2_prefix_map = {'CC': 0, 'A': 1, 'C': 2, 'P': 3, 'PI': 3}
     
     match = re.match(r'^([a-zA-Z]+)(.*)', code)
@@ -30,9 +22,7 @@ def natural_sort_key(code, fw_name):
         prefix_priority = 99
         rest = code
 
-    # 3. Numeric segments for natural sorting
     num_parts = [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', rest) if s]
-
     return (fw_priority, prefix_priority, num_parts)
 
 @admin.register(FrameworkRequirement)
@@ -65,42 +55,39 @@ class FrameworkRequirementAdmin(admin.ModelAdmin):
         response['Content-Disposition'] = 'attachment; filename="compliance_mapping.csv"'
         
         writer = csv.writer(response)
+        # Updated Headers: Added Long Description, Removed Parent Code and Control Description
         writer.writerow([
-            'Framework', 'Req Code', 'Req Description', 
-            'Parent Code', 'Control Codes', 'Control Descriptions'
+            'Framework', 
+            'Req Code', 
+            'Short Description', 
+            'Long Description', 
+            'Control Codes',
+            'Is Parent' # Placeholder for your highlighting logic
         ])
 
-        # Apply sorting to the selected items
-        req_list = list(queryset.select_related('framework', 'parent').prefetch_related('controls'))
+        # Optimize query and apply natural sort
+        req_list = list(queryset.select_related('framework', 'parent').prefetch_related('controls', 'sub_requirements'))
         req_list.sort(key=lambda x: natural_sort_key(x.code, x.framework.name))
 
         for req in req_list:
             all_controls = req.controls.all()
-            parent_code = req.parent.code if req.parent else "None"
             
-            if all_controls.exists():
-                # Join all control codes and descriptions into a single string for one row
-                # We use "; " or ", " as a separator so it's readable in Excel
-                control_codes = ", ".join([c.code for c in all_controls])
-                control_descs = " | ".join([c.short_description for c in all_controls])
-                
-                writer.writerow([
-                    req.framework.name, 
-                    req.code, 
-                    req.short_description,
-                    parent_code, 
-                    control_codes, 
-                    control_descs
-                ])
-            else:
-                writer.writerow([
-                    req.framework.name, 
-                    req.code, 
-                    req.short_description,
-                    parent_code, 
-                    "No Control Mapped", 
-                    "N/A"
-                ])
+            # Logic to check if it's a parent (has sub-requirements)
+            is_parent = req.sub_requirements.exists()
+            parent_label = "YES (Parent)" if is_parent else ""
+
+            # Formatting Control Codes with newlines instead of commas
+            # Excel/Google Sheets will display these on new lines within the cell
+            control_codes_str = "\n".join([c.code for c in all_controls]) if all_controls.exists() else "No Control Mapped"
+            
+            writer.writerow([
+                req.framework.name, 
+                req.code, 
+                req.short_description,
+                req.long_description,
+                control_codes_str,
+                parent_label
+            ])
                 
         return response
 
