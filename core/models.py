@@ -43,8 +43,25 @@ class FrameworkRequirement(models.Model):
         return f"{self.code}: {self.short_description[:30]}"
 
 class InternalControl(models.Model):
+    CATEGORY_CHOICES = [
+        ('AC', 'Access Control'),
+        ('AV', 'Availability'),
+        ('SP', 'Security Plan'),
+        ('AM', 'Asset Management'),
+        ('SM', 'System Monitoring'),
+        ('PS', 'Physical Security'),
+        ('KM', 'Contract Management'),
+        ('RM', 'Risk Management'),
+        ('IR', 'Incident Response'),
+        ('HR', 'Human Resources'),
+        ('CM', 'Change Management'),
+        ('CO', 'Confidentiality'),
+        ('CE', 'Control Environment'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     code = models.CharField(max_length=50, unique=True)
+    category = models.CharField(max_length=2, choices=CATEGORY_CHOICES, null=True, blank=True)
     short_description = models.TextField()
     long_description = models.TextField()
     test_procedures = models.TextField()
